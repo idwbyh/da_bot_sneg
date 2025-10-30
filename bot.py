@@ -2,7 +2,7 @@ import os
 import re
 import telebot
 
-BOT_TOKEN = os.getenv("BOT_TOKEN") or "8311688244:AAHl_uEV5ZBrDG4aTK9EhzyM_B2kyiKE2ZU"
+BOT_TOKEN = os.getenv("BOT_TOKEN") or "сюда_временно_вставь_твой_токен_из_BotFather"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 YES_PATTERN = re.compile(r'^(да+|дa+|da+|dа+)$', re.IGNORECASE)
