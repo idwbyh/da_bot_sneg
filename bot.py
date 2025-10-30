@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from aiogram import Bot, Dispatcher, types
 from aiohttp import web
-import aiohttp  # для ClientSession
+import aiohttp
 
 # ========================================
 # КОНФИГ
@@ -40,16 +40,16 @@ async def on_message(message: types.Message):
     if TRIGGER_PATTERN.search(message.text or ""):
         try:
             await message.reply("Пизда")
-            log.info(f"Ответил на '{message.text}' в чате {message.chat.id}")
+            log.info(f"Ответил в {message.chat.id}")
         except Exception as e:
-            log.error(f"Send error: {e}")
+            log.error(f"Ошибка: {e}")
 
 # ========================================
 # KEEP-ALIVE
 # ========================================
 async def keep_alive():
     if not RENDER_URL:
-        log.warning("No RENDER_EXTERNAL_URL – keep-alive disabled")
+        log.warning("RENDER_EXTERNAL_URL отсутствует")
         return
     async with aiohttp.ClientSession() as session:
         while True:
@@ -57,7 +57,7 @@ async def keep_alive():
                 async with session.get(RENDER_URL) as r:
                     log.info(f"Ping: {r.status}")
             except Exception as e:
-                log.error(f"Ping failed: {e}")
+                log.error(f"Ping error: {e}")
             await asyncio.sleep(240)
 
 # ========================================
@@ -78,7 +78,7 @@ async def clean_cache():
                             shutil.rmtree(item, ignore_errors=True)
                         else:
                             item.unlink(missing_ok=True)
-                except Exception:
+                except:
                     pass
         await asyncio.sleep(1800)
 
@@ -90,25 +90,3 @@ async def health(request):
 
 app = web.Application()
 app.router.add_get("/", health)
-
-# ========================================
-# ЗАПУСК
-# ========================================
-async def main():
-    # Фоновые задачи
-    asyncio.create_task(keep_alive())
-    asyncio.create_task(clean_cache())
-
-    # Веб-сервер
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    log.info(f"Web server on 0.0.0.0:{PORT}")
-
-    # Бот
-    log.info("Bot starting...")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
