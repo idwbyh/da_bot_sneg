@@ -1,96 +1,51 @@
-import os
-import json
+from flask import Flask, request
 import requests
-from flask import Flask, request, jsonify
-
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # обязательно
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # например https://your-service.onrender.com/webhook
-API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+import threading
+import time
+import re
 
 app = Flask(__name__)
 
-# ---- простая нормализация: убираем пробелы/пунктуацию, приводим к lower ----
-def normalize(text: str) -> str:
-    if not text:
-        return ""
-    txt = text.strip().lower()
-    # оставить только буквы (кириллица + латиница)
-    txt = "".join(ch for ch in txt if ch.isalpha())
-    return txt
+TOKEN = "8311688244:AAHl_uEV5ZBrDG4aTK9EhzyM_B2kyiKE2ZU"
+URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+PING_URL = "https://da-bot-sneg.onrender.com"  # твой Render-домен
 
-# ---- простая конверсия cyrillic->latin для пары букв, и latin->cyrillic ----
-# (достаточно для "да" <-> "da" обработки)
-CYR_TO_LAT = {"д": "d", "а": "a"}
-LAT_TO_CYR = {"d": "д", "a": "а"}
+# --- Ответ бота ---
+def check_message(text: str) -> bool:
+    text = text.lower().replace(" ", "")
+    return bool(re.search(r"^(da|да|d+a+)$", text))
 
-def cyr_to_lat(s: str) -> str:
-    return "".join(CYR_TO_LAT.get(ch, ch) for ch in s)
-
-def lat_to_cyr(s: str) -> str:
-    return "".join(LAT_TO_CYR.get(ch, ch) for ch in s)
-
-def is_da_variant(text: str) -> bool:
-    """
-    Возвращает True если нормализованный текст — это "да" (кириллица) или "da" (латиница)
-    с учётом возможного смешения букв.
-    """
-    n = normalize(text)
-    if not n:
-        return False
-    if n == "да" or n == "da":
-        return True
-    # попробовать преобразовать: кир->лат и лат->кир
-    if cyr_to_lat(n) == "da":
-        return True
-    if lat_to_cyr(n) == "да":
-        return True
-    return False
-
-def send_message(chat_id: int, text: str, reply_to_message_id: int = None):
-    payload = {"chat_id": chat_id, "text": text}
-    if reply_to_message_id:
-        payload["reply_to_message_id"] = reply_to_message_id
-    requests.post(f"{API_URL}/sendMessage", json=payload, timeout=10)
-
-@app.route("/webhook", methods=["POST"])
+@app.route("/", methods=["POST"])
 def webhook():
-    # Telegram присылает JSON с апдейтом
-    update = request.get_json(force=True)
-    # безопасность: не логируем всё, избегаем роста логов
-    msg = update.get("message") or update.get("channel_post") or {}
-    if not msg:
-        return jsonify({"ok": True})
+    data = request.get_json()
+    if not data or "message" not in data:
+        return "ok"
 
-    chat = msg.get("chat", {})
-    chat_type = chat.get("type", "")
-    text = msg.get("text", "")
-    # реагируем только в группах/супергруппах
-    if chat_type in ("group", "supergroup"):
-        if is_da_variant(text):
-            # отправляем ответ в тот же чат.
-            # можно отвечать в реплай, но по задаче просто отправляем "пизда"
-            # отвечаем реплай-ответом, чтобы было видно связь
-            send_message(chat["id"], "пизда", reply_to_message_id=msg.get("message_id"))
-    return jsonify({"ok": True})
+    message = data["message"]
+    text = message.get("text", "")
+    chat_id = message["chat"]["id"]
 
-@app.route("/health", methods=["GET"])
-def health():
-    # простой эндпоинт для пинга (UptimeRobot / Render cron)
-    return "OK", 200
+    if check_message(text):
+        requests.post(URL, json={
+            "chat_id": chat_id,
+            "text": "пизда"
+        })
 
-def set_webhook():
-    """Если задан WEBHOOK_URL — пытаемся зарегистрировать вебхук у Telegram."""
-    if not WEBHOOK_URL:
-        print("WEBHOOK_URL не задан, пропускаю setWebhook.")
-        return
-    try:
-        resp = requests.post(f"{API_URL}/setWebhook", json={"url": WEBHOOK_URL}, timeout=10)
-        print("setWebhook:", resp.status_code, resp.text)
-    except Exception as e:
-        print("Ошибка setWebhook:", e)
+    return "ok"
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Бот жив"
+
+# --- Поддержка живого состояния Render ---
+def keep_alive():
+    while True:
+        try:
+            requests.get(PING_URL)
+        except Exception:
+            pass
+        time.sleep(300)  # каждые 5 минут пинг
 
 if __name__ == "__main__":
-    # при запуске локально (debug) попытка зарегистрировать вебхук — опционально
-    set_webhook()
-    # Для Render/production — запускайте через gunicorn: gunicorn main:app --bind 0.0.0.0:$PORT
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    threading.Thread(target=keep_alive, daemon=True).start()
+    app.run(host="0.0.0.0", port=10000)
