@@ -8,23 +8,21 @@ from aiogram import Bot, Dispatcher, types
 from aiohttp import web
 
 # ========================================
-# НАСТРОЙКИ
+# КОНФИГ
 # ========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN не задан в переменных окружения!")
+    raise RuntimeError("BOT_TOKEN не задан!")
 
 PORT = int(os.getenv("PORT", 10000))
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
-# Варианты "да"
 TRIGGERS = ["да", "da"]
 TRIGGER_PATTERN = re.compile(
     r"\b(" + "|".join(re.escape(t) for t in TRIGGERS) + r")\b",
     re.IGNORECASE
 )
 
-# Логи
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
@@ -35,56 +33,55 @@ bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher()
 
 @dp.message()
-async def handle_message(message: types.Message):
+async def on_message(message: types.Message):
     if message.chat.type not in ("group", "supergroup"):
         return
-    text = message.text or ""
-    if TRIGGER_PATTERN.search(text):
+    if TRIGGER_PATTERN.search(message.text or ""):
         try:
             await message.reply("Пизда")
         except Exception as e:
-            log.error(f"Ошибка отправки: {e}")
+            log.error(f"Send error: {e}")
 
 # ========================================
 # KEEP-ALIVE
 # ========================================
 async def keep_alive():
     if not RENDER_URL:
-        log.warning("RENDER_EXTERNAL_URL не найден – keep-alive отключён")
+        log.warning("No RENDER_EXTERNAL_URL – keep-alive disabled")
         return
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                async with session.get(RENDER_URL) as resp:
-                    log.info(f"Keep-alive ping: {resp.status}")
+                async with session.get(RENDER_URL) as r:
+                    log.info(f"Ping: {r.status}")
             except Exception as e:
-                log.error(f"Keep-alive error: {e}")
+                log.error(f"Ping failed: {e}")
             await asyncio.sleep(240)
 
 # ========================================
 # ОЧИСТКА КЭША
 # ========================================
-async def clear_cache():
-    paths_to_clean = ["/tmp", "/app/__pycache__"]
+async def clean_cache():
+    paths = ["/tmp", "/app/__pycache__"]
     while True:
-        for p in paths_to_clean:
+        for p in paths:
             path = Path(p)
             if not path.exists():
                 continue
             for item in path.iterdir():
                 try:
                     age = asyncio.get_event_loop().time() - item.stat().st_mtime
-                    if age > 300:  # старше 5 минут
+                    if age > 300:
                         if item.is_dir():
                             shutil.rmtree(item, ignore_errors=True)
                         else:
                             item.unlink(missing_ok=True)
-                except Exception:
+                except:
                     pass
-        await asyncio.sleep(1800)  # каждые 30 минут
+        await asyncio.sleep(1800)
 
 # ========================================
-# ВЕБ-СЕРВЕР (для Render)
+# ВЕБ-СЕРВЕР
 # ========================================
 async def health(request):
     return web.Response(text="OK")
@@ -98,17 +95,17 @@ app.router.add_get("/", health)
 async def main():
     # Фоновые задачи
     asyncio.create_task(keep_alive())
-    asyncio.create_task(clear_cache())
+    asyncio.create_task(clean_cache())
 
     # Веб-сервер
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    log.info(f"Веб-сервер запущен на 0.0.0.0:{PORT}")
+    log.info(f"Web server on 0.0.0.0:{PORT}")
 
     # Бот
-    log.info("Бот запущен...")
+    log.info("Bot starting...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
