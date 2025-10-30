@@ -15,7 +15,8 @@ YES_PATTERN = re.compile(r'^(да+|дa+|da+|dа+)$', re.IGNORECASE)
 
 @bot.message_handler(func=lambda message: message.text and YES_PATTERN.match(message.text.strip()))
 def reply_yes(message):
-    bot.reply_to(message, "Пизда")
+    bot.send_message(message.chat.id, "Пизда!")
+
 
 @bot.message_handler(func=lambda message: True)
 def ignore_all(message):
