@@ -5,48 +5,51 @@ import re
 import shutil
 from pathlib import Path
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command, RegexpCommandsFilter
-import aiohttp
+from aiohttp import web
 
-# -------------------------------------------------
-# Конфигурация
-# -------------------------------------------------
+# ========================================
+# НАСТРОЙКИ
+# ========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN не задан!")
+    raise RuntimeError("BOT_TOKEN не задан в переменных окружения!")
 
-# Все варианты "да" (регистронезависимо)
-TRIGGERS = ["да", "da"]
-TRIGGER_REGEX = re.compile(r"\b(" + "|".join(re.escape(t) for t in TRIGGERS) + r")\b", re.IGNORECASE)
-
-# Порт для веб-сервера (Render требует)
 PORT = int(os.getenv("PORT", 10000))
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")  # Render даёт эту переменную автоматически
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")  # Render даёт автоматически
 
-# -------------------------------------------------
+# Варианты "да"
+TRIGGERS = ["да", "da"]
+TRIGGER_PATTERN = re.compile(
+    r"\b(" + "|".join(re.escape(t) for t in TRIGGERS) + r")\b",
+    re.IGNORECASE
+)
+
 # Логи
-# -------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# -------------------------------------------------
-# Бот
-# -------------------------------------------------
+# ========================================
+# БОТ
+# ========================================
 bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher()
 
 @dp.message()
-async def on_message(message: types.Message):
-    """Ловим любое сообщение в группах"""
+async def handle_message(message: types.Message):
+    # Только группы
     if message.chat.type not in ("group", "supergroup"):
         return
 
-    if TRIGGER_REGEX.search(message.text or ""):
-        await message.reply("Пизда")
+    text = message.text or ""
+    if TRIGGER_PATTERN.search(text):
+        try:
+            await message.reply("Пизда")
+        except Exception as e:
+            log.error(f"Ошибка отправки: {e}")
 
-# -------------------------------------------------
-# Keep-alive (пинг каждые 4 минуты)
-# -------------------------------------------------
+# ========================================
+# KEEP-ALIVE (чтобы Render не усыплял)
+# ========================================
 async def keep_alive():
     if not RENDER_URL:
         log.warning("RENDER_EXTERNAL_URL не найден – keep-alive отключён")
@@ -56,59 +59,22 @@ async def keep_alive():
         while True:
             try:
                 async with session.get(RENDER_URL) as resp:
-                    log.info(f"Keep-alive → {resp.status}")
+                    log.info(f"Keep-alive ping: {resp.status}")
             except Exception as e:
                 log.error(f"Keep-alive error: {e}")
-            await asyncio.sleep(240)  # 4 минуты
+            await asyncio.sleep(240)  # каждые 4 минуты
 
-# -------------------------------------------------
-# Очистка кэша
-# -------------------------------------------------
+# ========================================
+# ОЧИСТКА КЭША (чтобы не забить 500 МБ)
+# ========================================
 async def clear_cache():
+    paths_to_clean = ["/tmp", "/app/__pycache__"]
     while True:
-        for path_str in ["/tmp", "/app/__pycache__"]:
-            path = Path(path_str)
+        for p in paths_to_clean:
+            path = Path(p)
             if not path.exists():
                 continue
             for item in path.iterdir():
                 try:
-                    if item.stat().st_mtime < asyncio.get_event_loop().time() - 300:
-                        if item.is_dir():
-                            shutil.rmtree(item, ignore_errors=True)
-                        else:
-                            item.unlink(missing_ok=True)
-                except:
-                    pass
-        await asyncio.sleep(1800)  # 30 минут
-
-# -------------------------------------------------
-# Веб-сервер (обязателен для Render!)
-# -------------------------------------------------
-from aiohttp import web
-
-async def health_check(request):
-    return web.Response(text="OK")
-
-app = web.Application()
-app.router.add_get('/', health_check)
-
-# -------------------------------------------------
-# Запуск
-# -------------------------------------------------
-async def main():
-    # Фоновые задачи
-    asyncio.create_task(keep_alive())
-    asyncio.create_task(clear_cache())
-
-    # Запускаем веб-сервер и бота параллельно
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    log.info(f"Веб-сервер запущен на 0.0.0.0:{PORT}")
-
-    log.info("Бот стартует (long-polling)...")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+                    age = asyncio.get_event_loop().time() - item.stat().st_mtime
+                    if age > 300:  # старше 5 минут
