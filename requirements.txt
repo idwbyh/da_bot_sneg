@@ -1,5 +1,3 @@
-aiogram==3.6.0
-aiohttp==3.9.5
-certifi
-async-timeout
-pydantic==2.6.3
+pyTelegramBotAPI==4.23.0
+Flask==3.0.3
+requests==2.32.0
