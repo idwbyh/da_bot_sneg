@@ -1,27 +1,31 @@
 import os
+import json
 import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# TOKEN берем из переменных окружения
+# Токен из Render-переменных
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 if not TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN not set in environment")
 
-# Endpoint для отправки сообщений
 API_SEND = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-# Безопасный webhook-путь — используем токен в пути
 WEBHOOK_PATH = f"/{TOKEN}"
 
+# Загружаем словарь реакций
+with open("replies.json", "r", encoding="utf-8") as f:
+    REPLIES = json.load(f)
 
-# Проверка: последнее слово "да" (игнорируем регистр и пробелы)
-def ends_with_da(text: str) -> bool:
+
+def get_reply_for(text: str) -> str | None:
     if not text:
-        return False
-    words = text.strip().lower().split()
-    return words[-1] == "да"
+        return None
+    t = text.lower().strip()
+    for key, reply in REPLIES.items():
+        if t.endswith(key):  # проверяем, оканчивается ли сообщение на ключ
+            return reply
+    return None
 
 
 @app.route(WEBHOOK_PATH, methods=["POST"])
@@ -29,16 +33,16 @@ def webhook():
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"ok": True})
-
-    msg = data.get("message") or data.get("channel_post") or {}
+    msg = data.get("message") or {}
     text = msg.get("text", "")
     chat = msg.get("chat", {})
 
-    if chat and ends_with_da(text):
+    reply = get_reply_for(text)
+    if chat and reply:
         try:
             requests.post(API_SEND, json={
                 "chat_id": chat["id"],
-                "text": "пизда",
+                "text": reply,
                 "reply_to_message_id": msg.get("message_id")
             }, timeout=5)
         except Exception:
